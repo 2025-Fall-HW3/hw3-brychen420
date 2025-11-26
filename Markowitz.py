@@ -62,6 +62,15 @@ class EqualWeightPortfolio:
         """
         TODO: Complete Task 1 Below
         """
+        # set equal weights among the non-excluded assets (long-only)
+        assets_list = list(assets)
+        n = len(assets_list)
+        if n > 0:
+            eq_w = 1.0 / n
+            # assign equal weight for all dates for these assets
+            for col in assets_list:
+                self.portfolio_weights[col] = eq_w
+            # excluded asset remains NaN -> will be filled as 0 later
 
         """
         TODO: Complete Task 1 Above
@@ -113,7 +122,18 @@ class RiskParityPortfolio:
         """
         TODO: Complete Task 2 Below
         """
-
+        for i in range(self.lookback + 1, len(df)):
+            R_n = df_returns.copy()[assets].iloc[i - self.lookback : i]
+            vol = R_n.std()
+            # guard against zero volatility
+            vol = vol.replace(0, 1e-8)
+            inv_vol = 1.0 / vol
+            w = inv_vol / inv_vol.sum()
+            try:
+                self.portfolio_weights.loc[df.index[i], assets] = w.values
+            except Exception:
+                # if assignment fails for any reason, skip that date
+                pass
 
 
         """
@@ -187,12 +207,18 @@ class MeanVariancePortfolio:
                 """
                 TODO: Complete Task 3 Below
                 """
+                # === Decision variables: w ≥ 0 ===
+                w = model.addMVar(n, lb=0, ub=1, name="w")
 
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                # === Objective function ===
+                # maximize wᵀ μ  −  γ/2 · wᵀ Σ w
+                quad_term = (gamma / 2) * w @ Sigma @ w
+                lin_term = mu @ w
+                model.setObjective(lin_term - quad_term, gp.GRB.MAXIMIZE)
 
+                # === Constraint: sum(w) = 1 ===
+                model.addConstr(w.sum() == 1, name="budget")
+                
                 """
                 TODO: Complete Task 3 Above
                 """

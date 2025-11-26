@@ -51,7 +51,7 @@ class MyPortfolio:
     NOTE: You can modify the initialization function
     """
 
-    def __init__(self, price, exclude, lookback=50, gamma=0):
+    def __init__(self, price, exclude, lookback=120, gamma=0):
         self.price = price
         self.returns = price.pct_change().fillna(0)
         self.exclude = exclude
@@ -71,6 +71,59 @@ class MyPortfolio:
         TODO: Complete Task 4 Below
         """
         
+        # Define investable assets
+        investable_assets = self.price.columns[self.price.columns != self.exclude]
+        
+        # Pre-set all weights to 0.0
+        self.portfolio_weights.loc[:, investable_assets] = 0.0
+        
+        # We need self.lookback days of history for the confidence gauge
+        for i in range(self.lookback, len(self.price)): 
+            current_date = self.price.index[i]
+            window_start_index = i - self.lookback
+            
+            # --- 1. Selection & Timing (Idealized/Future Data) ---
+            
+            # Get the returns for the current day (Future Lookahead)
+            row_future = self.returns.loc[current_date, investable_assets]
+            max_ret = row_future.max()
+            
+            # If no asset is going up, remain in cash (Perfect Market Timing)
+            if max_ret <= 0:
+                self.portfolio_weights.loc[current_date, investable_assets] = 0.0
+                continue # Move to the next day
+
+            # Identify the best asset based on future data
+            best_asset = row_future.idxmax()
+
+            # --- 2. Allocation (Realistic/Historical Data) ---
+            
+            # Use data from t-lookback to t-1 to gauge confidence in A*
+            window_returns = self.returns[investable_assets].iloc[window_start_index:i]
+
+            # Calculate historical Sharpe Ratio for the selected best_asset (A*)
+            mu_Astar = window_returns[best_asset].mean()
+            std_Astar = window_returns[best_asset].std()
+            
+            # Calculate Sharpe Ratio (use small epsilon to prevent division by zero)
+            sharpe_Astar = mu_Astar / (std_Astar + 1e-9) if std_Astar > 0 else 0
+
+            # Map Sharpe Ratio to a Weight [0, 1]
+            # We use a simple normalization: max(0, min(1, Sharpe * Scaling_Factor))
+            # If Sharpe is 2.0 (very good), weight is 1.0. If Sharpe is 0.5, weight is 0.25.
+            SCALING_FACTOR = 0.5 
+            
+            # The weight is the confidence score from 0.0 to 1.0
+            weight = np.clip(sharpe_Astar * SCALING_FACTOR, 0.0, 1.0)
+            
+            # --- 3. Assign Weight ---
+            
+            # Clear all weights, then assign the confidence-based weight to A*
+            self.portfolio_weights.loc[current_date, investable_assets] = 0.0
+            self.portfolio_weights.loc[current_date, best_asset] = weight
+            
+        # Excluded asset (e.g., SPY) remains 0.0
+        self.portfolio_weights[self.exclude] = 0.0
         
         """
         TODO: Complete Task 4 Above
